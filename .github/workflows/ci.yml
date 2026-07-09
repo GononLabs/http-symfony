@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "develop", "release/*" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.2', '8.3']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: ${{ matrix.php-version }}
+        coverage: pcov
+        tools: composer, cs2pr
+
+    - name: Validate composer.json and composer.lock
+      run: composer validate --strict
+
+    - name: Cache Composer packages
+      id: composer-cache
+      uses: actions/cache@v3
+      with:
+        path: vendor
+        key: ${{ runner.os }}-php-${{ matrix.php-version }}-composer-${{ hashFiles('**/composer.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-php-${{ matrix.php-version }}-composer-
+
+    - name: Install dependencies
+      run: composer install --prefer-dist --no-progress
+
+    - name: Security Audit
+      run: composer audit
+
+    - name: Check code style (Laravel Pint)
+      run: vendor/bin/pint --test
+
+    - name: Run static analysis (PHPStan)
+      run: vendor/bin/phpstan analyse --error-format=github
+
+    - name: Run tests (PHPUnit)
+      run: vendor/bin/phpunit --coverage-clover build/logs/clover.xml
+      
+    - name: Upload coverage artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report-${{ matrix.php-version }}
+        path: build/logs/clover.xml
